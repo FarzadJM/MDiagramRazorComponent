@@ -1,0 +1,83 @@
+﻿@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+
+@implements IAsyncDisposable
+@inject IJSRuntime JSRuntime
+
+<div @ref="diagramElement"></div>
+
+@code {
+    private ElementReference diagramElement;
+    private DotNetObjectReference<MDiagram>? dotNetHelper;
+    private IJSObjectReference? diagramModule;
+    private IJSObjectReference? diagram;
+
+    [Parameter]
+    public Func<Task<IEnumerable<INode>>>? GetNodesDataAsync { get; set; }
+    [Parameter]
+    public Func<Task<IEnumerable<IEdge>>>? GetEdgesDataAsync { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            dotNetHelper = DotNetObjectReference.Create(this);
+            diagramModule = await JSRuntime.InvokeAsync<IJSObjectReference>("import",
+            "./_content/MDiagramRazorComponent/diagramModule.js");
+            diagram = await diagramModule.InvokeAsync<IJSObjectReference>("addDiagram", diagramElement, dotNetHelper,
+            System.Globalization.CultureInfo.CurrentCulture.TwoLetterISOLanguageName == "fa");
+        }
+    }
+
+    protected override bool ShouldRender() => false;
+
+    public async Task Refresh()
+    {
+        if (diagramModule is not null)
+        {
+            await diagramModule.InvokeVoidAsync("refresh", diagramElement, dotNetHelper);
+        }
+    }
+
+    async ValueTask IAsyncDisposable.DisposeAsync()
+    {
+        try
+        {
+            if (diagramModule is not null) await diagramModule.InvokeVoidAsync("dispose", diagramElement);
+        }
+        catch (Exception ex) when (ex.GetType().Name == "JSDisconnectedException")
+        {
+            //https://github.com/dotnet/aspnetcore/issues/33336#issuecomment-862425579
+        }
+
+        if (diagram is not null) await diagram.DisposeAsync();
+        if (diagramModule is not null) await diagramModule.DisposeAsync();
+        dotNetHelper?.Dispose();
+    }
+
+    [JSInvokable]
+    public async Task<string> OnGetNodesDataAsync()
+    {
+        if (GetNodesDataAsync is not null)
+        {
+            return System.Text.Json.JsonSerializer.Serialize(await GetNodesDataAsync());
+        }
+        else
+        {
+            return string.Empty;
+        }
+    }
+
+    [JSInvokable]
+    public async Task<string> OnGetEdgesDataAsync()
+    {
+        if (GetEdgesDataAsync is not null)
+        {
+            return System.Text.Json.JsonSerializer.Serialize(await GetEdgesDataAsync());
+        }
+        else
+        {
+            return string.Empty;
+        }
+    }
+}
